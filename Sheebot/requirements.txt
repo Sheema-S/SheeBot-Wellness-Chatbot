@@ -1,0 +1,5 @@
+flask>=2.2
+requests>=2.28
+flask-cors>=3.0
+python-dotenv>=1.0
+dateparser>=1.1

@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Wellness Buddy • SheeBot</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+  <style>
+    * { box-sizing: border-box; }
+    :root{
+      --lav:#ede9fe;
+      --lav-2:#e9d5ff;
+      --ink:#111827;
+      --muted:#6b7280;
+      --card:#ffffff;
+      --stroke:#e5e7eb;
+      --brand:#4f46e5;
+      --ok:#10b981;
+      --warn:#f59e0b;
+      --bad:#ef4444;
+
+      /* chart colors */
+      --c-water: #60a5fa; /* blue-400 */
+      --c-sleep: #fbbf24; /* amber-400 */
+      --c-mood-1:#34d399; /* green */
+      --c-mood-2:#818cf8; /* indigo */
+      --c-mood-3:#f87171; /* red */
+      --c-mood-4:#f59e0b; /* amber */
+    }
+    body{
+      margin:0; font-family: 'Segoe UI', system-ui, -apple-system, Arial, sans-serif;
+      background:#f7f8fc; color:var(--ink);
+      height:100vh; display:grid; grid-template-columns: 340px 1fr;
+    }
+
+    /* ======= LEFT RAIL ======= */
+    .rail{
+      border-right:1px solid var(--stroke);
+      background:linear-gradient(180deg, var(--lav) 0%, var(--lav-2) 100%);
+      padding:14px; display:flex; flex-direction:column; gap:12px;
+      overflow:auto;
+    }
+    .brand{
+      display:flex; gap:10px; align-items:center; padding:8px 10px;
+    }
+    .brand .logo{ width:40px; height:40px; border-radius:12px; background:#fff; display:grid; place-items:center; border:1px solid var(--stroke); }
+    .brand h1{ margin:0; font-size:18px; letter-spacing:.3px; }
+    .muted{ color:var(--muted); font-size:12px; }
+
+    .blk{
+      background:var(--card); border:1px solid var(--stroke); border-radius:16px; padding:12px;
+      box-shadow: 0 8px 18px rgba(0,0,0,.04);
+    }
+    .blk h3{
+      margin:0 0 10px; font-size:12px; font-weight:800; letter-spacing:.6px; color:#374151; text-transform:uppercase;
+      display:flex; justify-content:space-between; align-items:center;
+    }
+    .chip{ font-size:12px; border:1px dashed #c7d2fe; color:#4f46e5; border-radius:999px; padding:2px 8px; background:#f8fafc; }
+
+    .row{ display:flex; gap:8px; }
+    .row > *{ flex:1; }
+    select,input[type="date"]{
+      width:100%; padding:9px 10px; border-radius:12px; border:1px solid var(--stroke); background:#fff; font-size:14px;
+    }
+    .btn{
+      width:100%; text-align:left; padding:10px 12px; border-radius:12px; border:1px solid #dbe3ff; background:#fff; cursor:pointer; font-weight:600;
+    }
+    .btn:hover{ background:#f5f7ff; }
+    .btn.danger{ border-color:#fecaca; }
+    .btn.danger:hover{ background:#fff1f2; }
+
+    /* CHART CARDS */
+    .chart-list{ display:flex; flex-direction:column; gap:12px; }
+    .chart-card{
+      background:#fff; border:1px solid var(--stroke); border-radius:16px; padding:12px; position:relative;
+      box-shadow:0 6px 16px rgba(0,0,0,.05);
+    }
+    .chart-head{
+      display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;
+    }
+    .chart-title{
+      display:flex; align-items:center; gap:8px; font-weight:700; font-size:14px;
+    }
+    .badge{
+      font-size:11px; padding:2px 8px; border-radius:999px; border:1px solid var(--stroke); background:#fafafa;
+    }
+    .legend{
+      display:flex; gap:6px; flex-wrap:wrap; margin-top:6px;
+    }
+    .dot{ width:10px; height:10px; border-radius:50%; display:inline-block; }
+    canvas{ width:100% !important; height:160px !important; }
+
+    /* ======= CHAT ======= */
+    .chat{
+      display:grid; grid-template-rows:auto 1fr auto; height:100vh; overflow:hidden; background:#f9fafb;
+    }
+    .chat-hd{ padding:14px 18px; background:#eef2ff; border-bottom:1px solid var(--stroke); display:flex; gap:10px; align-items:center; }
+    .avatar{ width:36px; height:36px; border-radius:50%; background:#fff; border:1px solid var(--stroke); display:grid; place-items:center; }
+    .online{ color:var(--ok); font-weight:600; font-size:12px; }
+
+    .chatbox{ padding:18px; overflow:auto; background-image: radial-gradient(#eef2ff 1px, transparent 1px); background-size:22px 22px; }
+    .bubble{ max-width:72%; margin:6px 0; padding:10px 12px; border-radius:16px; box-shadow:0 2px 8px rgba(0,0,0,.05); line-height:1.45; white-space:pre-wrap; }
+    .bubble.bot{ background:#fff; border:1px solid var(--stroke); border-radius:16px 16px 16px 6px; }
+    .bubble.user{ background:var(--brand); color:#fff; margin-left:auto; border-radius:16px 16px 6px 16px; }
+
+    .composer{ display:flex; gap:8px; padding:12px; border-top:1px solid var(--stroke); background:#fff; }
+    .composer input{ flex:1; padding:12px 14px; border:1px solid var(--stroke); border-radius:20px; font-size:15px; }
+    .icon-btn{ width:40px; height:40px; border-radius:50%; border:none; color:#fff; cursor:pointer; display:grid; place-items:center; }
+    .send{ background:var(--brand); } .mic{ background:var(--ok); }
+
+    @media (max-width: 1020px){
+      body{ grid-template-columns: 1fr; }
+      .rail{ order:2; height:52vh; }
+      .chat{ order:1; height:48vh; }
+      canvas{ height:140px !important; }
+    }
+  </style>
+</head>
+<body>
+  <!-- ===== LEFT: WELL-DESIGNED CHART RAIL ===== -->
+  <aside class="rail">
+    <div class="brand">
+      <div class="logo">😊</div>
+      <div>
+        <h1>SheeBot Wellness</h1>
+        <div class="muted">Personal Mental Health</div>
+      </div>
+    </div>
+
+    <div class="blk">
+      <h3>Session <span class="chip">Quick actions</span></h3>
+      <div class="row" style="margin-bottom:8px;">
+        <input type="date" id="dateInput" />
+        <select id="timeFilter" onchange="onTimeFilterChange()">
+          <option value="1">1 Day</option>
+          <option value="7" selected>7 Days</option>
+          <option value="30">30 Days</option>
+          <option value="all">All Time</option>
+        </select>
+      </div>
+      <button id="summaryBtn" class="btn">📅 Show Summary</button>
+      <button id="weeklyBtn" class="btn">📈 Weekly Report</button>
+      <button id="narrativeBtn" class="btn">📝 Weekly Narrative</button>
+      <button id="profileBtn" class="btn">👤 Profile</button>
+      <button id="clearChatBtn" class="btn danger">🗑 Clear Chat</button>
+    </div>
+
+    <div class="blk">
+      <h3>Wellness Charts <span id="loadingMessage" class="muted" style="display:none;">Loading…</span></h3>
+
+      <div class="chart-list">
+        <!-- Water -->
+        <div class="chart-card">
+          <div class="chart-head">
+            <div class="chart-title"><span>💧</span> <span>Water Intake</span></div>
+            <span id="waterBadge" class="badge">—</span>
+          </div>
+          <canvas id="waterChart"></canvas>
+          <div class="legend">
+            <span><span class="dot" style="background:var(--c-water)"></span> Intake</span>
+            <span><span class="dot" style="border:2px dashed #111; background:transparent"></span> Goal</span>
+          </div>
+        </div>
+
+        <!-- Sleep -->
+        <div class="chart-card">
+          <div class="chart-head">
+            <div class="chart-title"><span>🌙</span> <span>Sleep Duration</span></div>
+            <span id="sleepBadge" class="badge">—</span>
+          </div>
+          <canvas id="sleepChart"></canvas>
+          <div class="legend">
+            <span><span class="dot" style="background:var(--c-sleep)"></span> Hours</span>
+            <span><span class="dot" style="border:2px dashed #111; background:transparent"></span> Goal</span>
+          </div>
+        </div>
+
+        <!-- Mood -->
+        <div class="chart-card">
+          <div class="chart-head">
+            <div class="chart-title"><span>😊</span> <span>Mood Tracker</span></div>
+            <span class="badge">Counts / day</span>
+          </div>
+          <canvas id="moodChart"></canvas>
+          <div class="legend" id="moodLegend"></div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ===== RIGHT: CHAT ===== -->
+  <section class="chat">
+    <div class="chat-hd">
+      <div class="avatar">😊</div>
+      <div>
+        <div style="font-weight:800;">SheeBot</div>
+        <div class="online">Online</div>
+      </div>
+    </div>
+
+    <div id="chatbox" class="chatbox" aria-live="polite"></div>
+
+    <div class="composer">
+      <input id="userInput" type="text" placeholder="Write your message…" />
+      <button id="voiceBtn" class="icon-btn mic" title="Speak">🎤</button>
+      <button id="sendBtn" class="icon-btn send" onclick="sendMessage()" title="Send">➤</button>
+    </div>
+  </section>
+
+  <!-- ===== Profile Modal ===== -->
+  <div id="profileModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="profileTitle">
+    <div class="modal">
+      <h3 id="profileTitle">Your Profile</h3>
+      <div class="grid-2">
+        <label>Age (years)
+          <input type="number" id="p_age" min="1" max="120" placeholder="e.g., 25" />
+        </label>
+        <label>Gender
+          <select id="p_gender">
+            <option value="">Prefer not to say</option>
+            <option>female</option>
+            <option>male</option>
+            <option>nonbinary</option>
+            <option>other</option>
+          </select>
+        </label>
+        <label>Height (cm)
+          <input type="number" id="p_height" min="50" max="250" step="0.1" placeholder="e.g., 165" />
+        </label>
+        <label>Weight (kg)
+          <input type="number" id="p_weight" min="20" max="300" step="0.1" placeholder="e.g., 60" />
+        </label>
+        <label>Activity
+          <select id="p_activity">
+            <option>low</option>
+            <option selected>moderate</option>
+            <option>high</option>
+          </select>
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button id="profileCancel" class="btn" type="button">Cancel</button>
+        <button id="profileSave" class="btn" type="button">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* ========= Chat rendering ========= */
+    const CHAT_KEY='wb_chat_history', MAX_CHAT_MESSAGES=300;
+    const chatbox=document.getElementById('chatbox'), input=document.getElementById('userInput'), sendBtn=document.getElementById('sendBtn'), loadingMessage=document.getElementById('loadingMessage');
+
+    function loadChatHistory(){ try{ return JSON.parse(localStorage.getItem(CHAT_KEY)||'[]'); }catch{ return []; } }
+    function saveChatHistory(l){ try{ if(l.length>MAX_CHAT_MESSAGES) l=l.slice(-MAX_CHAT_MESSAGES); localStorage.setItem(CHAT_KEY, JSON.stringify(l)); }catch{} }
+    function renderMessage(sender,text){ const b=document.createElement('div'); b.className='bubble '+sender; b.textContent=text||''; chatbox.appendChild(b); chatbox.scrollTop=chatbox.scrollHeight; }
+    function addMessage(sender,text){ renderMessage(sender,text); const h=loadChatHistory(); h.push({sender,text,ts:Date.now()}); saveChatHistory(h); }
+    function renderChat(){ chatbox.textContent=''; loadChatHistory().forEach(m=>renderMessage(m.sender,m.text)); }
+    document.getElementById('clearChatBtn').addEventListener('click',()=>{ localStorage.removeItem(CHAT_KEY); chatbox.textContent=''; addMessage('bot','Chat cleared.'); });
+
+    async function sendMessage(){
+      const message=input.value.trim(), selectedDate=document.getElementById('dateInput').value;
+      if(!message) return;
+      addMessage('user',message); input.value=''; sendBtn.disabled=true;
+      try{
+        const r=await fetch('/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message,selected_date:selectedDate||null})});
+        const d=await r.json();
+        addMessage('bot', d.error?`⚠️ ${d.error}`:(d.response||'⚠️ No response'));
+        await loadCharts(selectedDate);
+      }catch{ addMessage('bot','⚠️ Something went wrong.'); } finally{ sendBtn.disabled=false; }
+    }
+    input.addEventListener('keydown',e=>{ if(e.key==='Enter') sendMessage(); });
+
+    // Voice
+    document.getElementById('voiceBtn').addEventListener('click',()=>{
+      const SR=window.SpeechRecognition||window.webkitSpeechRecognition; if(!SR){ alert("Sorry, your browser doesn't support voice recognition."); return; }
+      const s=new SR(); s.lang='en-US'; s.interimResults=false; s.maxAlternatives=1;
+      s.onstart=()=>addMessage('bot','🎙️ Listening…'); s.onresult=(e)=>{ input.value=e.results[0][0].transcript; sendMessage(); };
+      s.onerror=()=>addMessage('bot','⚠️ Voice input error.'); s.start();
+    });
+
+    /* ========= Charts ========= */
+    const COLORS={ water:'rgba(96,165,250,.6)', waterLine:'rgba(96,165,250,1)', sleep:'rgba(251,191,36,.6)', sleepLine:'rgba(251,191,36,1)' };
+    const moodPalette=['var(--c-mood-1)','var(--c-mood-2)','var(--c-mood-3)','var(--c-mood-4)'];
+    let moodChart;
+    function onTimeFilterChange(){ localStorage.setItem('wb_time_range', document.getElementById('timeFilter').value); loadCharts(); }
+    function getSavedTimeRange(){ return localStorage.getItem('wb_time_range') || '7'; }
+
+    // Shared chart options for a clean, compact look
+    const baseBarOptions = (maxTicks=4) => ({
+      responsive:true, maintainAspectRatio:false,
+      plugins:{
+        legend:{ display:false },
+        tooltip:{ mode:'index', intersect:false, backgroundColor:'#111', titleColor:'#fff', bodyColor:'#fff', borderColor:'#333', borderWidth:1 }
+      },
+      scales:{
+        x:{ grid:{ display:false }, ticks:{ maxRotation:0, autoSkip:true, autoSkipPadding:16, font:{ size:11 }, color:'#6b7280' } },
+        y:{ beginAtZero:true, grid:{ color:'rgba(17,24,39,.06)', borderDash:[4,4] }, ticks:{ stepSize:'auto', maxTicksLimit:maxTicks, font:{ size:11 }, color:'#6b7280' } }
+      }
+    });
+
+    // Draw dotted goal line + label
+    const goalLinePlugin = {
+      id:'goalLine',
+      afterDatasetsDraw(chart, args, pluginOptions){
+        const {ctx, chartArea:{top,bottom,left,right}, scales:{y}} = chart;
+        const goal = pluginOptions.goal; if(goal==null) return;
+        const yGoal = y.getPixelForValue(goal);
+        ctx.save();
+        ctx.setLineDash([6,4]); ctx.strokeStyle='#111'; ctx.lineWidth=1.5;
+        ctx.beginPath(); ctx.moveTo(left, yGoal); ctx.lineTo(right, yGoal); ctx.stroke();
+        ctx.setLineDash([]);
+        // label pill
+        const label = pluginOptions.label || `Goal (${goal})`;
+        const metrics = ctx.measureText(label);
+        const padX=6, padY=3, w=metrics.width+padX*2, h=18;
+        const x = right - w - 6, y2 = Math.max(top+6, Math.min(bottom-h-6, yGoal-9));
+        ctx.fillStyle='#fff'; ctx.strokeStyle='rgba(0,0,0,.2)'; ctx.lineWidth=1; ctx.beginPath();
+        ctx.roundRect(x,y2,w,h,9); ctx.fill(); ctx.stroke();
+        ctx.fillStyle='#111'; ctx.font='12px Segoe UI'; ctx.fillText(label, x+padX, y2+12.5);
+        ctx.restore();
+      }
+    };
+
+    async function loadCharts(selectedDate=null, skipSummary=true){
+      loadingMessage.style.display='inline';
+      try{
+        const filter=getSavedTimeRange(); document.getElementById('timeFilter').value=filter;
+        const [resData,resTargets]=await Promise.all([ fetch(`/graph-data?days=${encodeURIComponent(filter)}`), fetch(`/targets`) ]);
+        const raw=await resData.json(); const targets=await resTargets.json();
+        if(raw.error){ addMessage('bot',`⚠️ Couldn’t load charts: ${raw.error}`); clearCharts(); return; }
+
+        const norm = d => new Date(d).toISOString().split('T')[0];
+        const dateStr = norm(selectedDate || document.getElementById('dateInput').value || new Date());
+        const displayDate = new Date(dateStr).toLocaleDateString(undefined,{month:'short',day:'numeric'});
+
+        // Water
+        const wVals = raw.water.map(d=>d[0]);
+        const wDates = raw.water.map(d=>d[1]);
+        makeBarWithGoal('waterChart', wDates, wVals, COLORS.water, targets.water_target_L, `Goal (${targets.water_target_L} L)`, {unit:'L'});
+        const wToday = wVals[raw.water.map(d=>norm(d[1])).indexOf(dateStr)] || 0;
+        badge('waterBadge', wToday, targets.water_target_L, 'L');
+
+        // Sleep
+        const sVals = raw.sleep.map(d=>d[0]);
+        const sDates = raw.sleep.map(d=>d[1]);
+        makeBarWithGoal('sleepChart', sDates, sVals, COLORS.sleep, targets.sleep_target_h, `Goal (${targets.sleep_target_h} h)`, {unit:'h'});
+        const sToday = sVals[raw.sleep.map(d=>norm(d[1])).indexOf(dateStr)] || 0;
+        badge('sleepBadge', sToday, targets.sleep_target_h, 'h');
+
+        // Mood (stacked compact)
+        makeMood(raw.mood||{});
+
+        // Optional summary back to chat
+        if(!skipSummary){
+          const moodEmojis = raw.mood?.[dateStr] ? Object.entries(raw.mood[dateStr]).flatMap(([e,c])=>Array(c).fill(e)) : [];
+          const summary = `📅 ${displayDate} — 💧 ${wToday}L  🌙 ${sToday}h  😊 ${moodEmojis.length ? moodEmojis.join(' ') : '—'}`;
+          addMessage('bot', summary);
+        }
+      }catch(e){ addMessage('bot','⚠️ Couldn’t load charts right now.'); clearCharts(); }
+      finally{ loadingMessage.style.display='none'; }
+    }
+
+    function badge(id, value, goal, unit){
+      const el=document.getElementById(id);
+      if(!el) return;
+      if(!goal){ el.textContent = `${value}${unit}`; return; }
+      const pct = Math.round((value/Math.max(goal,1))*100);
+      el.textContent = `${value}${unit} • ${pct}%`;
+      el.style.borderColor = pct>=100? '#bbf7d0' : pct>=70? '#fde68a' : '#fecaca';
+      el.style.background = pct>=100? '#f0fdf4' : pct>=70? '#fffbeb' : '#fff1f2';
+      el.style.color = pct>=100? '#065f46' : pct>=70? '#92400e' : '#991b1b';
+    }
+
+    function makeBarWithGoal(canvasId, labelsISO, values, color, goal, label, fmt){
+      const ctx=document.getElementById(canvasId);
+      if(window[canvasId] instanceof Chart){ window[canvasId].destroy(); }
+      const labels = labelsISO.map(ts => new Date(ts).toLocaleDateString(undefined,{month:'short', day:'numeric'}));
+      window[canvasId]=new Chart(ctx,{
+        type:'bar',
+        data:{ labels, datasets:[{ data:values, backgroundColor:color, borderColor:color.replace('0.6','1'), borderWidth:1, borderRadius:8, barThickness:18, maxBarThickness:18, categoryPercentage:.72 }] },
+        options: baseBarOptions(4),
+        plugins: [ { ...goalLinePlugin, goal: goal, label }, ]
+      });
+    }
+
+    function makeMood(moodData){
+      const ctx=document.getElementById('moodChart').getContext('2d');
+      if(moodChart instanceof Chart) moodChart.destroy();
+
+      const days = Object.keys(moodData).sort();
+      const allEmojis = new Set();
+      days.forEach(d => Object.keys(moodData[d]).forEach(e => allEmojis.add(e)));
+      const order = Array.from(allEmojis);
+
+      // Map emojis to valence-based colors
+      const moodColorMap = {
+        // Positive → green spectrum
+        "🤩": "#065f46", // very happy (dark green)
+        "😁": "#059669", // happy (medium green)
+        "😀": "#10b981", // good (green)
+        "😌": "#6ee7b7", // calm/relaxed (light green)
+
+        // Neutral → blue/gray
+        "😴": "#60a5fa", // sleepy (blue)
+        "😐": "#9ca3af", // neutral (gray)
+
+        // Negative → red spectrum
+        "😔": "#f87171", // sad (light red)
+        "😞": "#ef4444", // upset (red)
+        "😟": "#dc2626", // worried (darker red)
+        "😢": "#b91c1c", // crying (deep red)
+        "😣": "#7f1d1d", // frustrated (maroon)
+        "😰": "#991b1b", // anxious (dark maroon)
+        "😠": "#7f1d1d"  // angry (dark maroon)
+      };
+
+      const legend = document.getElementById('moodLegend');
+      legend.innerHTML='';
+
+      const datasets = order.map(emoji => {
+        const color = moodColorMap[emoji] || "#6b7280"; // fallback gray
+        // add legend entry
+        const s=document.createElement('span');
+        s.innerHTML=`<span class="dot" style="background:${color}"></span> ${emoji}`;
+        legend.appendChild(s);
+
+        return {
+          label: emoji,
+          data: days.map(d => moodData[d][emoji] || 0),
+          backgroundColor: color,
+          borderColor: color,
+          borderWidth: 1,
+          borderRadius: 6
+        };
+      });
+
+      moodChart=new Chart(ctx,{
+        type:'bar',
+        data:{ labels: days.map(d => new Date(d).toLocaleDateString(undefined,{month:'short',day:'numeric'})), datasets },
+        options:{
+          responsive:true, maintainAspectRatio:false,
+          plugins:{ legend:{ display:false } },
+          scales:{
+            x:{ stacked:true, grid:{display:false}, ticks:{ font:{ size:11 } } },
+            y:{ stacked:true, beginAtZero:true, grid:{ color:'rgba(17,24,39,.06)', borderDash:[4,4] }, ticks:{ maxTicksLimit:4, font:{size:11} } }
+          }
+        }
+      });
+    }
+
+
+    function clearCharts(){ ['waterChart','sleepChart'].forEach(id=>{ if(window[id] instanceof Chart){ window[id].destroy(); window[id]=null; } }); if(moodChart instanceof Chart){ moodChart.destroy(); moodChart=null; } }
+
+    // Buttons that use backend
+    document.getElementById('summaryBtn').addEventListener('click', async ()=>{ const d=document.getElementById('dateInput').value || new Date().toISOString().split('T')[0]; await loadCharts(d,false); });
+    const weeklyBtn=document.getElementById('weeklyBtn');
+    weeklyBtn.addEventListener('click', async ()=>{
+      const prev=weeklyBtn.textContent; weeklyBtn.disabled=true; weeklyBtn.textContent='Building…';
+      try{ const r=await fetch('/weekly-report'); const d=await r.json();
+        if(d.error) addMessage('bot',`⚠️ ${d.error}`); else{ addMessage('bot', d.summary || '📈 Weekly report is empty.'); if(Array.isArray(d.suggestions)&&d.suggestions.length){ addMessage('bot','💡 Suggestions\n'+d.suggestions.map(s=>'• '+s).join('\n')); } }
+      }catch{ addMessage('bot','⚠️ Could not load weekly report.'); } finally{ weeklyBtn.disabled=false; weeklyBtn.textContent=prev; }
+    });
+    const narrativeBtn=document.getElementById('narrativeBtn');
+    narrativeBtn.addEventListener('click', async ()=>{
+      const prev=narrativeBtn.textContent; narrativeBtn.disabled=true; narrativeBtn.textContent='Writing…';
+      try{ const r=await fetch('/weekly-narrative'); const d=await r.json(); addMessage('bot', d.error?`⚠️ ${d.error}`: (d.narrative||'📝 (No narrative generated.)')); }catch{ addMessage('bot','⚠️ Could not get weekly narrative.'); } finally{ narrativeBtn.disabled=false; narrativeBtn.textContent=prev; }
+    });
+
+    /* ========= Profile modal ========= */
+    const modal=document.getElementById('profileModal');
+    const btnOpen=document.getElementById('profileBtn'), btnCancel=document.getElementById('profileCancel'), btnSave=document.getElementById('profileSave');
+    const p_age=document.getElementById('p_age'), p_gender=document.getElementById('p_gender'), p_height=document.getElementById('p_height'), p_weight=document.getElementById('p_weight'), p_activity=document.getElementById('p_activity');
+    function openModal(){ modal.style.display='flex'; } function closeModal(){ modal.style.display='none'; }
+    btnOpen.addEventListener('click', async ()=>{ try{ const r=await fetch('/profile'); const prof=await r.json(); p_age.value=prof.age??''; p_gender.value=prof.gender??''; p_height.value=prof.height_cm??''; p_weight.value=prof.weight_kg??''; p_activity.value=prof.activity??'moderate'; }catch{} openModal(); });
+    btnCancel.addEventListener('click', closeModal);
+    modal.addEventListener('click',e=>{ if(e.target===modal) closeModal(); });
+    btnSave.addEventListener('click', async ()=>{
+      const payload={ age:p_age.value?Number(p_age.value):null, gender:p_gender.value||null, height_cm:p_height.value?Number(p_height.value):null, weight_kg:p_weight.value?Number(p_weight.value):null, activity:p_activity.value||'moderate' };
+      try{ const r=await fetch('/profile',{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) }); const d=await r.json();
+        if(d.error) addMessage('bot',`⚠️ ${d.error}`); else{ addMessage('bot','✅ Profile saved. Targets updated.'); await loadCharts(); closeModal(); }
+      }catch{ addMessage('bot','⚠️ Could not save profile.'); }
+    });
+
+    /* ========= Boot ========= */
+    window.addEventListener('DOMContentLoaded', async ()=>{
+      const h=loadChatHistory(); if(h.length===0) addMessage('bot','Hi there! How can I help you today?'); else renderChat();
+      document.getElementById('timeFilter').value=getSavedTimeRange();
+      await loadCharts();
+    });
+  </script>
+</body>
+</html>
