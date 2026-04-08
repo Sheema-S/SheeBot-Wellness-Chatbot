@@ -41,6 +41,7 @@ This makes wellness tracking more engaging, interactive, and human-like.
 
 ### Weekly Narrative (AI Insights)
 <img src="weekly-narrative.png" width="700"/>
+
 ---
 
 ## Tech Stack
