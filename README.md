@@ -21,7 +21,7 @@ An AI-powered wellness assistant that combines habit tracking, conversational su
 
 Most wellness apps only track data — they don’t actually *talk* to you.
 
-SheeBot bridges that gap by combining:
+This Chatbot bridges that gap by combining:
 
 * Data tracking (water, sleep, mood)
 * Conversational AI support
