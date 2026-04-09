@@ -10,6 +10,7 @@ from functools import wraps
 from datetime import datetime, timedelta
 
 from flask import Flask, render_template, request, jsonify
+
 # optional imports that may not be present in every environment
 try:
     from dotenv import load_dotenv
@@ -90,7 +91,7 @@ def read_json(path, default):
 def write_json(path, obj):
     with _FILE_LOCK:
         with open(path, "w", encoding="utf-8") as f:
-            json.dump(obj, f, ensure_ascii=False)
+            json.dump(obj, f, ensure_ascii=False, indent=2)
 
 def normalize_quotes(s: str) -> str:
     return (s or "").replace("’", "'").replace("“", '"').replace("”", '"')
@@ -139,33 +140,51 @@ def save_log(user_input, bot_response):
     })
 
 def recent_dialogue(n_pairs=6):
+    """
+    Returns recent natural dialogue only.
+    Filters out UI-ish or system-style bot messages that pollute context.
+    """
     rows = read_jsonl(LOG_FILE)
-    tail = rows[-n_pairs:]
+    tail = rows[-(n_pairs * 3):]  # fetch a bit more, then filter
     lines = []
     for r in tail:
         ui = (r.get("user_input", "") or "").strip()
         br = (r.get("bot_response", "") or "").strip()
-        if ui: lines.append(f"User: {ui}")
-        if br: lines.append(f"Bot: {br}")
+
+        if ui:
+            lines.append(f"User: {ui}")
+
+        if br:
+            # Skip summary/UI noise
+            if br.startswith("📅"):
+                continue
+            if br.startswith("🧠"):
+                continue
+            if br.startswith("🧼"):
+                continue
+            if br.startswith("✅ Profile saved"):
+                continue
+            lines.append(f"Bot: {br}")
+
     return "\n".join(lines[-2 * n_pairs:])
 
 # ========= Long-term memory store & retrieve =========
 KEYWORDS_IMPORTANT = {
-    "headache","migraine","stress","anxious","anxiety","depressed","depression",
-    "mood","happy","sad","goal","gym","workout","walk","meditate","meditation",
-    "journal","sleep","slept","water","liters","diet","eat","meal","doctor",
-    "appointment","injury","pain","trigger","allergy","allergic","caffeine"
+    "headache", "migraine", "stress", "anxious", "anxiety", "depressed", "depression",
+    "mood", "happy", "sad", "goal", "gym", "workout", "walk", "meditate", "meditation",
+    "journal", "sleep", "slept", "water", "liters", "diet", "eat", "meal", "doctor",
+    "appointment", "injury", "pain", "trigger", "allergy", "allergic", "caffeine"
 }
-YESLIKE = {"yes","yeah","yep","sure","ok","okay","sounds good","please","do it","go ahead"}
+YESLIKE = {"yes", "yeah", "yep", "sure", "ok", "okay", "sounds good", "please", "do it", "go ahead"}
 
 def importance_score(text):
     score = 0.3
     t = (text or "").lower()
     hits = sum(1 for k in KEYWORDS_IMPORTANT if k in t)
     score += min(0.05 * hits, 0.4)
-    if re.search(r"\b\d+(\.\d+)?\b", t):  # quantities
+    if re.search(r"\b\d+(\.\d+)?\b", t):
         score += 0.15
-    if any(w in t for w in ["i feel","i am","i'm","today","my goal","i want"]):
+    if any(w in t for w in ["i feel", "i am", "i'm", "today", "my goal", "i want"]):
         score += 0.15
     return min(score, 1.0)
 
@@ -217,7 +236,8 @@ def update_user_data(user_input, manual_date=None):
         "happy": "😀", "joyful": "😁", "excited": "🤩",
         "sad": "😔", "depressed": "😞", "anxious": "😟",
         "angry": "😠", "tired": "😴", "calm": "😌",
-        "lonely": "😢", "stressed": "😣", "nervous": "😰"
+        "lonely": "😢", "stressed": "😣", "nervous": "😰",
+        "good": "🙂", "fine": "🙂"
     }
 
     def overwrite_entry(entries, key, value, date_str):
@@ -226,13 +246,13 @@ def update_user_data(user_input, manual_date=None):
         entries.append({key: value, "timestamp": ts})
 
     facts = []
-
     lowered = user_input.lower()
+
     goal_match = re.search(r"\b(my goal is|i (want|plan) to)\b(.+)", lowered)
     if goal_match:
         text_goal = goal_match.group(3).strip()
         if text_goal:
-            write_memory(f"User goal: {text_goal}", tags=["goal","preference"], force=True)
+            write_memory(f"User goal: {text_goal}", tags=["goal", "preference"], force=True)
 
     pref_match = re.search(r"\bi (don't) (like|eat|drink)\b(.+)", lowered)
     if pref_match:
@@ -243,6 +263,7 @@ def update_user_data(user_input, manual_date=None):
         part = part.strip()
         if not part:
             continue
+
         ts = dateparser.parse(part, settings={"RELATIVE_BASE": parsed_full_date}) or parsed_full_date
         date_str = ts.date().isoformat()
 
@@ -271,22 +292,22 @@ def update_user_data(user_input, manual_date=None):
 
         # 😊 mood
         for word, emoji in mood_keywords.items():
-            if re.search(rf"\b{word}\b", part, re.IGNORECASE):
+            if re.search(rf"\b{re.escape(word)}\b", part, re.IGNORECASE):
                 data["mood"].append({"text": word, "emoji": emoji, "timestamp": ts.isoformat()})
                 facts.append(f"User felt {word} {emoji} on {date_str}.")
                 break
 
         # symptoms (store as memory)
-        if any(s in part.lower() for s in ["headache","migraine","nausea","fatigue","tired","anxious","anxiety","stressed","stress"]):
+        if any(s in part.lower() for s in ["headache", "migraine", "nausea", "fatigue", "tired", "anxious", "anxiety", "stressed", "stress", "pain"]):
             facts.append(f"Symptom noted on {date_str}: {part.strip()}")
 
     write_json(DATA_FILE, data)
 
     for f in facts:
-        write_memory(f, tags=["health","metric"])
+        write_memory(f, tags=["health", "metric"])
 
-    if any(w in lowered for w in ["headache","migraine"]):
-        set_state({"last_topic": "headache_advice"})
+    if any(w in lowered for w in ["headache", "migraine"]):
+        set_state({"last_topic": "symptom_support"})
     elif "sleep" in lowered and re.search(r"\d", lowered):
         set_state({"last_topic": "sleep_log"})
     elif "water" in lowered and re.search(r"\d", lowered):
@@ -351,11 +372,11 @@ def recent_totals_for_prompt(days=3):
 # ========= Personalised targets & profile =========
 def read_profile():
     return read_json(PROFILE_FILE, {
-        "age": None,            # int years
-        "gender": None,         # "female" | "male" | "nonbinary" | "other"
-        "height_cm": None,      # float
-        "weight_kg": None,      # float
-        "activity": "moderate"  # "low" | "moderate" | "high"
+        "age": None,
+        "gender": None,
+        "height_cm": None,
+        "weight_kg": None,
+        "activity": "moderate"
     })
 
 def write_profile(p):
@@ -384,9 +405,9 @@ def compute_targets(profile):
     activity = (profile.get("activity") or "moderate").lower()
 
     if isinstance(weight, (int, float)) and weight and weight > 0:
-        base_l = weight * 0.035  # 35 ml/kg
+        base_l = weight * 0.035
     else:
-        base_l = 1.8  # sensible default
+        base_l = 1.8
 
     bonus = 0.0
     if activity == "moderate":
@@ -395,7 +416,7 @@ def compute_targets(profile):
         bonus = 0.6
     water_target = round(base_l + bonus, 2)
 
-    min_s, max_s, tgt_s = recommended_sleep_hours(profile.get("age"))
+    _, _, tgt_s = recommended_sleep_hours(profile.get("age"))
     sleep_target = float(tgt_s)
 
     bmi = None
@@ -408,22 +429,23 @@ def compute_targets(profile):
 
 # ========= Ollama helpers (robust; tuned for local server) =========
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434/api/generate")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3")  # default to llama3 as you requested
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3")
 
 def query_ollama(prompt: str) -> str:
-    """
-    Robust call to Ollama. Returns a friendly message if connection fails.
-    Uses longer read timeouts appropriate for local large-model generation.
-    """
     payload = {
         "model": OLLAMA_MODEL,
         "prompt": prompt,
         "stream": False,
-        "options": {"temperature": 0.55, "top_p": 0.9, "repeat_penalty": 1.12, "num_ctx": 8192}
+        "options": {
+            "temperature": 0.55,
+            "top_p": 0.9,
+            "repeat_penalty": 1.12,
+            "num_ctx": 8192
+        }
     }
-    # try a couple of generous timeouts (connect, read)
     timeouts = [(5, 120), (5, 300)]
     last_err = None
+
     for connect_t, read_t in timeouts:
         try:
             print(f"=== query_ollama: attempt connect={connect_t}s read={read_t}s model={OLLAMA_MODEL}")
@@ -434,15 +456,19 @@ def query_ollama(prompt: str) -> str:
                 last_err = f"non-JSON from Ollama ({je})"
                 print(">>>", last_err)
                 continue
+
             if r.status_code != 200:
                 last_err = f"HTTP {r.status_code}: {data}"
                 print(">>>", last_err)
                 continue
+
             if data.get("error"):
                 last_err = f"ollama error: {data['error']}"
                 print(">>>", last_err)
                 continue
+
             return (data.get("response") or "").strip() or "Bot: (no text generated)."
+
         except requests.exceptions.ReadTimeout:
             last_err = f"read timeout after {read_t}s"
             print(">>>", last_err)
@@ -455,6 +481,7 @@ def query_ollama(prompt: str) -> str:
             last_err = f"unexpected: {e}"
             print(">>>", last_err)
             break
+
     return (
         "Bot: I couldn’t reach the local model engine just now. "
         "Please ensure `ollama serve` is running and the model name matches your install "
@@ -473,7 +500,7 @@ def maybe_require_admin(fn):
         return fn(*args, **kwargs)
     return wrapper
 
-# ========= Helpers: greeting/short message detection =========
+# ========= Helpers =========
 _GREETING_RE = re.compile(r"^\s*(hi|hello|hey|yo|hiya|hola|sup|heyy+|hai)\b[!.]*\s*$", re.I)
 
 def is_greeting(txt: str) -> bool:
@@ -499,10 +526,176 @@ def is_short_neutral(txt: str) -> bool:
     tokens = re.findall(r"[a-zA-Z0-9]+", t)
     return len(tokens) <= 2
 
+def detect_intent(text: str) -> str:
+    t = (text or "").strip().lower()
+
+    if any(x in t for x in [
+        "weekly report", "show report", "summary", "show summary",
+        "how am i doing", "my habits", "weekly narrative"
+    ]):
+        return "report"
+
+    if any(x in t for x in [
+        "i drank", "drank", "water today", "litre", "liter", "ml", "cups",
+        "i slept", "slept", "hours", "hrs", "i feel", "i felt", "my mood"
+    ]):
+        return "log"
+
+    if any(x in t for x in [
+        "headache", "migraine", "stomach ache", "stomachache", "pain", "nausea"
+    ]):
+        return "symptom_support"
+
+    if any(x in t for x in [
+        "sleep", "bedtime", "insomnia", "tired", "stress", "anxiety", "anxious",
+        "hydration", "hydrate", "water", "habit", "mood", "overwhelmed"
+    ]):
+        return "wellness"
+
+    if is_greeting(t) or is_short_neutral(t):
+        return "chat"
+
+    return "chat"
+
+def crisis_detected(text: str) -> bool:
+    t = (text or "").lower()
+    patterns = [
+        "kill myself", "end my life", "suicide", "self harm",
+        "hurt myself", "want to die", "harm others", "kill someone"
+    ]
+    return any(p in t for p in patterns)
+
+def natural_log_reply(user_input: str, data: dict, targets: dict) -> str:
+    messages = []
+
+    if data.get("water_logged") is not None:
+        water = data["water_logged"]
+        target = targets["water_target"]
+        messages.append(
+            f"I’ve logged {water:.2f}L of water for today."
+        )
+        if target:
+            pct = int((water / target) * 100) if target > 0 else 0
+            messages.append(f"That’s about {pct}% of your daily water goal.")
+
+    if data.get("sleep_logged") is not None:
+        sleep = data["sleep_logged"]
+        target = targets["sleep_target"]
+        messages.append(f"I’ve logged {sleep:.1f} hours of sleep.")
+        if target:
+            if sleep >= target:
+                messages.append("Nice — that’s around or above your target.")
+            else:
+                messages.append(f"That’s a bit below your target of {target:.1f} hours.")
+
+    if data.get("mood_logged"):
+        messages.append(f"I’ve logged your mood as {data['mood_logged']}.")
+
+    if not messages:
+        return "Bot: Got it — I’ve noted that. Tell me if you’d like a quick tip, a summary, or help with your habits."
+
+    return "Bot: " + " ".join(messages)
+
+def extract_logged_values(user_input: str):
+    t = normalize_quotes(user_input or "")
+    result = {
+        "water_logged": None,
+        "sleep_logged": None,
+        "mood_logged": None,
+    }
+
+    water_match = re.search(
+        r"(\d+(?:\.\d+)?)\s*((?:liters?|litres?|ltr?s?|l|ml|milliliters?|millilitres?|cups?))\b",
+        t,
+        re.IGNORECASE,
+    )
+    if water_match:
+        amount = float(water_match.group(1))
+        unit = water_match.group(2).lower()
+        if unit.startswith("ml") or unit.startswith("millil"):
+            amount /= 1000.0
+        elif unit.startswith("cup"):
+            amount = amount * 240.0 / 1000.0
+        result["water_logged"] = amount
+
+    sleep_match = re.search(r"(\d+(?:\.\d+)?)\s*(?:hours?|hrs?|h)\b", t, re.IGNORECASE)
+    if sleep_match and re.search(r"\bsleep|slept\b", t.lower()):
+        result["sleep_logged"] = float(sleep_match.group(1))
+
+    mood_keywords = [
+        "happy", "joyful", "excited", "sad", "depressed", "anxious", "angry",
+        "tired", "calm", "lonely", "stressed", "nervous", "good", "fine"
+    ]
+    lower_t = t.lower()
+    for mood in mood_keywords:
+        if re.search(rf"\b{re.escape(mood)}\b", lower_t):
+            result["mood_logged"] = mood
+            break
+
+    return result
+
+def build_chat_prompt(intent, user_input, selected_date, streak, totals, short_context, mem_snippets):
+    context_block = ""
+    if short_context:
+        context_block += f"\n\nRecent dialogue:\n{short_context}"
+    if mem_snippets:
+        context_block += f"\n\nRelevant memories:\n{mem_snippets}"
+
+    system = """
+You are SheeBot, a friendly, natural, conversational AI wellness assistant.
+
+Your default style is warm, clear, human-like, and helpful.
+You should sound like a normal chatbot in everyday conversation.
+
+Behavior by intent:
+- chat: respond naturally and conversationally like a normal helpful chatbot.
+- wellness: give practical, natural advice about sleep, hydration, mood, stress, or habits.
+- log: acknowledge the logged information naturally and briefly.
+- report: summarise patterns clearly and concisely.
+- symptom_support: do NOT diagnose and do NOT suggest remedies or medication. Give gentle self-care suggestions and suggest professional help if symptoms are severe or persistent.
+
+Rules:
+- Do not force every response into coaching language.
+- Do not always give “tiny next steps”.
+- Do not turn simple questions into jokes or unrelated content.
+- Do not overuse emotional language.
+- Keep the answer relevant to the user’s actual question.
+- Be concise, but natural.
+- Avoid medical claims.
+"""
+
+    if intent == "chat":
+        instruction = "Respond naturally like a friendly chatbot."
+    elif intent == "wellness":
+        instruction = "Respond with practical, conversational wellness advice. Keep it useful and natural."
+    elif intent == "log":
+        instruction = "Acknowledge the logged information naturally and briefly."
+    elif intent == "report":
+        instruction = "Respond with a clear and structured summary."
+    elif intent == "symptom_support":
+        instruction = (
+            "Respond safely. Do not diagnose. Suggest simple self-care like rest, hydration, "
+            "and seeking professional help if needed."
+        )
+    else:
+        instruction = "Respond naturally and helpfully."
+
+    return f"""{system}
+
+Detected intent: {intent}
+Streak: {streak} days
+Selected date (if any): {selected_date or 'today'}
+Recent totals: water_last3d={totals['water_last3d']}L, sleep_last3d={totals['sleep_last3d']}h
+
+User: {user_input}{context_block}
+
+{instruction}
+Respond as 'Bot:'.
+Bot:"""
+
 # ========= Flask Routes =========
 @app.route("/")
 def index():
-    # index.html must be located at ./templates/index.html
     return render_template("index.html")
 
 @app.route("/health", methods=["GET"])
@@ -520,25 +713,32 @@ def profile_route():
     try:
         if request.method == "GET":
             return jsonify(read_profile())
+
         payload = request.get_json(force=True) or {}
         p = read_profile()
+
         def to_float(x):
             try:
-                if x is None or x == "": return None
+                if x is None or x == "":
+                    return None
                 return float(x)
-            except: return None
+            except Exception:
+                return None
+
         def to_int(x):
             try:
-                if x is None or x == "": return None
+                if x is None or x == "":
+                    return None
                 return int(x)
-            except: return None
+            except Exception:
+                return None
 
         age = to_int(payload.get("age"))
         gender = payload.get("gender") or None
         height_cm = to_float(payload.get("height_cm"))
         weight_kg = to_float(payload.get("weight_kg"))
         activity = (payload.get("activity") or "moderate").lower()
-        if activity not in ("low","moderate","high"):
+        if activity not in ("low", "moderate", "high"):
             activity = "moderate"
 
         p.update({
@@ -550,6 +750,7 @@ def profile_route():
         })
         write_profile(p)
         return jsonify({"status": "ok", "profile": p})
+
     except Exception as e:
         print("❌ /profile error:", e)
         traceback.print_exc()
@@ -581,7 +782,6 @@ def chat():
         user_input = (payload.get("message", "") or "").strip()
         selected_date = payload.get("selected_date")
 
-        # Debug prints for terminal troubleshooting
         print("=== /chat RECEIVED payload ===")
         print(payload)
         print("=== /chat user_input ===", repr(user_input), "selected_date:", repr(selected_date))
@@ -589,13 +789,22 @@ def chat():
         if not user_input:
             return jsonify({"error": "message is required"}), 400
 
-        # Handle trivial greetings locally
-        if is_greeting(user_input) or is_short_neutral(user_input):
+        if crisis_detected(user_input):
             reply = (
-                "Bot: 👋 Hey! I’m here. You can:\n"
-                "• log something — e.g., “I drank 2.5L water”, “I slept 7.5 hours”, “I felt 😌”\n"
-                "• or tell me what you want help with (focus, stress, tasks, habits).\n"
-                "What would feel most helpful right now?"
+                "Bot: I’m really sorry you’re feeling this way. You deserve immediate support. "
+                "Please contact emergency services or a crisis helpline in your area right now, "
+                "and reach out to someone you trust. Are you safe right now?"
+            )
+            save_log(user_input, reply)
+            return jsonify({"response": reply})
+
+        intent = detect_intent(user_input)
+
+        # Handle greetings / tiny casual messages locally
+        if intent == "chat" and (is_greeting(user_input) or is_short_neutral(user_input)):
+            reply = (
+                "Bot: 👋 Hey! I’m here. You can chat with me normally, log things like sleep or water, "
+                "or ask for wellness advice. What would you like help with?"
             )
             save_log(user_input, reply)
             return jsonify({"response": reply})
@@ -611,80 +820,86 @@ def chat():
                 "note": f"update_user_data failed: {repr(log_err)}"
             })
 
-        # yes/ok follow-up steering
         lowered = user_input.lower()
         state = get_state()
-        if lowered in YESLIKE and state.get("last_topic") == "headache_advice":
-            user_input = "Please continue with the headache tips and next steps for me."
+
+        if lowered in YESLIKE and state.get("last_topic") == "symptom_support":
+            user_input = "Please continue helping me with gentle symptom support."
+            intent = "symptom_support"
         elif lowered in YESLIKE and state.get("last_topic"):
-            user_input = f"Continue with the topic: {state.get('last_topic')}."
+            user_input = f"Please continue helping me with {state.get('last_topic')}."
+            intent = "wellness"
+
+        profile = read_profile()
+        water_target, sleep_target, _ = compute_targets(profile)
+
+        # Natural direct reply for log messages
+        if intent == "log":
+            extracted = extract_logged_values(user_input)
+            reply = natural_log_reply(
+                user_input,
+                extracted,
+                {"water_target": water_target, "sleep_target": sleep_target}
+            )
+            save_log(user_input, reply)
+
+            ui_low = user_input.lower()
+            if any(x in ui_low for x in ["sleep", "slept"]):
+                set_state({"last_topic": "sleep"})
+            elif "water" in ui_low or "litre" in ui_low or "liter" in ui_low:
+                set_state({"last_topic": "hydration"})
+            elif "feel" in ui_low or "mood" in ui_low:
+                set_state({"last_topic": "mood"})
+
+            return jsonify({"response": reply})
+
+        # Report shortcut
+        if intent == "report":
+            report = build_weekly_report(days=7)
+            reply = "Bot: " + report["summary"] + "\n\nSuggestions:\n- " + "\n- ".join(report["suggestions"][:3])
+            save_log(user_input, reply)
+            set_state({"last_topic": "report"})
+            return jsonify({"response": reply})
 
         # Build LLM prompt
         short_context = recent_dialogue(n_pairs=6)
         retrieved = search_memory(user_input, top_k=5, min_sim=0.25)
-        mem_snippets = "\n".join(f"- {m['text']} ({m.get('timestamp','')})" for m in retrieved)
+        mem_snippets = "\n".join(f"- {m['text']} ({m.get('timestamp', '')})" for m in retrieved)
         totals = recent_totals_for_prompt()
         streak = get_streak()
 
-        system = (
-    "You are Wellness Buddy (SheeBot), a warm, concise mental-wellness coach.\n"
-    "\n"
-    "Your behavior depends on the user's intent:\n"
-    "\n"
-    "1. **If the user asks for casual content** (jokes, facts, random questions, small talk):\n"
-    "   - Respond normally, playfully, or informatively.\n"
-    "   - Do NOT give wellness steps.\n"
-    "\n"
-    "2. **If the user expresses emotions, stress, or mental-health concerns**:\n"
-    "   - First reflect the feeling in 1 short empathetic sentence.\n"
-    "   - Give up to 3 tiny, specific steps with time estimates.\n"
-    "   - Use logs (water_last3d, sleep_last3d, streak) only when clearly relevant.\n"
-    "   - Keep answers ≤160 words.\n"
-    "\n"
-    "3. **If crisis language appears** (self-harm or harm to others):\n"
-    "   - Encourage immediate professional help.\n"
-    "   - Ask if they are safe right now.\n"
-    "   - Keep tone calm and supportive.\n"
-    "\n"
-    "General rules:\n"
-    "- Never force wellness advice for lighthearted or unrelated requests.\n"
-    "- Keep language simple, human, and grounded.\n"
-    "- Be warm, not overly formal.\n"
-    "- Keep answers concise.\n"
-)
-
-        context_block = ""
-        if short_context:
-            context_block += f"\n\nRecent dialogue:\n{short_context}"
-        if mem_snippets:
-            context_block += f"\n\nRelevant memories:\n{mem_snippets}"
-
-        full_prompt = f"""{system}
-Streak: {streak} days
-Selected date (if any): {selected_date or 'today'}
-Recent totals: water_last3d={totals['water_last3d']}L, sleep_last3d={totals['sleep_last3d']}h
-
-User: {user_input}{context_block}
-
-Respond as 'Bot:' with a short, supportive, actionable message.
-Bot:"""
+        full_prompt = build_chat_prompt(
+            intent=intent,
+            user_input=user_input,
+            selected_date=selected_date,
+            streak=streak,
+            totals=totals,
+            short_context=short_context,
+            mem_snippets=mem_snippets
+        )
 
         bot_response = query_ollama(full_prompt)
 
-        # Debug: trimmed output to terminal
         print("=== /chat bot_response (trimmed) ===")
         print(repr(bot_response)[:1000])
 
+        # Ensure Bot: prefix
+        if not bot_response.strip().startswith("Bot:"):
+            bot_response = "Bot: " + bot_response.strip()
+
         save_log(user_input, bot_response)
 
-        # update last-topic heuristics
         ui_low = user_input.lower()
-        if any(x in ui_low for x in ["headache","migraine"]):
-            set_state({"last_topic": "headache_advice"})
-        elif any(x in ui_low for x in ["sleep","slept"]):
+        if any(x in ui_low for x in ["headache", "migraine", "stomach ache", "pain", "nausea"]):
+            set_state({"last_topic": "symptom_support"})
+        elif any(x in ui_low for x in ["sleep", "slept", "bedtime", "insomnia"]):
             set_state({"last_topic": "sleep"})
-        elif "water" in ui_low:
-            set_state({"last_topic": "water"})
+        elif any(x in ui_low for x in ["water", "hydrate", "hydration", "litre", "liter"]):
+            set_state({"last_topic": "hydration"})
+        elif any(x in ui_low for x in ["stress", "anxiety", "mood", "happy", "sad"]):
+            set_state({"last_topic": "mood"})
+        else:
+            set_state({"last_topic": "chat"})
 
         return jsonify({"response": bot_response})
 
@@ -692,8 +907,7 @@ Bot:"""
         print("❌ /chat error:", e)
         traceback.print_exc()
         return jsonify({
-            "response": "Bot: I hit an unexpected error but I’m here. "
-                        "Tell me your top stressor or one task you want help with, and we’ll make a 3-step plan."
+            "response": "Bot: I hit an unexpected error, but I’m here. Try asking again in a simpler way, and I’ll help."
         }), 200
 
 # ---- Graph data for charts ----
@@ -762,10 +976,12 @@ def _zero_day_map(n=7):
     return {d: 0.0 for d in _last_n_days_dates(n)}
 
 def _classify_mood(emoji_or_text: str) -> str:
-    positive = {"😀","😁","🤩","😌","happy","joyful","excited","calm"}
-    negative = {"😔","😞","😟","😰","😣","😢","😠","sad","depressed","anxious","stressed","nervous","angry"}
-    if emoji_or_text in positive: return "positive"
-    if emoji_or_text in negative: return "negative"
+    positive = {"😀", "😁", "🤩", "😌", "🙂", "happy", "joyful", "excited", "calm", "good", "fine"}
+    negative = {"😔", "😞", "😟", "😰", "😣", "😢", "😠", "sad", "depressed", "anxious", "stressed", "nervous", "angry"}
+    if emoji_or_text in positive:
+        return "positive"
+    if emoji_or_text in negative:
+        return "negative"
     return "neutral"
 
 def build_weekly_report(days=7):
@@ -779,30 +995,41 @@ def build_weekly_report(days=7):
     mood_counts_by_day = {d: {} for d in day_keys}
 
     for e in data.get("water", []):
-        ts = e.get("timestamp"); amt = e.get("amount")
-        if not ts or amt is None: continue
+        ts = e.get("timestamp")
+        amt = e.get("amount")
+        if not ts or amt is None:
+            continue
         try:
             d = datetime.fromisoformat(ts).date().isoformat()
-            if d in water: water[d] += float(amt)
-        except: pass
+            if d in water:
+                water[d] += float(amt)
+        except Exception:
+            pass
 
     for e in data.get("sleep", []):
-        ts = e.get("timestamp"); hrs = e.get("hours")
-        if not ts or hrs is None: continue
+        ts = e.get("timestamp")
+        hrs = e.get("hours")
+        if not ts or hrs is None:
+            continue
         try:
             d = datetime.fromisoformat(ts).date().isoformat()
-            if d in sleep: sleep[d] += float(hrs)
-        except: pass
+            if d in sleep:
+                sleep[d] += float(hrs)
+        except Exception:
+            pass
 
     for e in data.get("mood", []):
-        ts = e.get("timestamp"); emo = e.get("emoji") or e.get("text")
-        if not ts or not emo: continue
+        ts = e.get("timestamp")
+        emo = e.get("emoji") or e.get("text")
+        if not ts or not emo:
+            continue
         try:
             d = datetime.fromisoformat(ts).date().isoformat()
             if d in mood_counts_by_day:
                 bucket = _classify_mood(emo)
                 mood_counts_by_day[d][bucket] = mood_counts_by_day[d].get(bucket, 0) + 1
-        except: pass
+        except Exception:
+            pass
 
     water_values = [water[d] for d in day_keys]
     sleep_values = [sleep[d] for d in day_keys]
@@ -814,12 +1041,12 @@ def build_weekly_report(days=7):
     days_meet_water = sum(1 for d in day_keys if water[d] >= water_target)
     days_meet_sleep = sum(1 for d in day_keys if sleep[d] >= sleep_target)
 
-    mood_totals = {"positive":0, "neutral":0, "negative":0}
+    mood_totals = {"positive": 0, "neutral": 0, "negative": 0}
     for d in day_keys:
         for k, v in mood_counts_by_day[d].items():
             mood_totals[k] = mood_totals.get(k, 0) + v
     mood_total_all = sum(mood_totals.values()) or 1
-    mood_pos_pct = round(100 * mood_totals.get("positive",0) / mood_total_all)
+    mood_pos_pct = round(100 * mood_totals.get("positive", 0) / mood_total_all)
 
     days_with_any_log = sum(1 for d in day_keys if (water[d] > 0 or sleep[d] > 0 or mood_counts_by_day[d]))
     consistency = f"{days_with_any_log}/{days}"
@@ -828,34 +1055,43 @@ def build_weekly_report(days=7):
     if water_avg < water_target:
         gap = max(0.0, round(water_target - water_avg, 2))
         glasses = max(1, round((gap * 1000) / 250))
-        suggestions.append(f"Hydration: avg {water_avg}L/day (<{water_target}L). Add ~{gap}L/day (~{glasses}×250 ml) — e.g., one mid-afternoon, one evening.")
+        suggestions.append(
+            f"Hydration: average {water_avg}L/day, below your {water_target}L goal. "
+            f"Try adding about {gap}L/day (~{glasses} glasses of 250ml)."
+        )
     else:
-        suggestions.append(f"Hydration: on target — {water_avg}L/day vs {water_target}L goal. Keep a bottle nearby and sip regularly.")
+        suggestions.append(
+            f"Hydration: on target — {water_avg}L/day versus your {water_target}L goal."
+        )
 
-    suggestions.append(
-        f"Sleep: avg {sleep_avg}h vs goal {sleep_target}h. "
-        + ("Try a 15–30 min earlier wind-down, dim lights, phone off." if sleep_avg < sleep_target
-           else "Nice consistency — keep your bedtime/wake time steady.")
-    )
+    if sleep_avg < sleep_target:
+        suggestions.append(
+            f"Sleep: average {sleep_avg}h versus your {sleep_target}h target. "
+            f"Try a 15–30 minute earlier wind-down and less screen time before bed."
+        )
+    else:
+        suggestions.append(
+            f"Sleep: good consistency — {sleep_avg}h average, which is around your target."
+        )
 
     if mood_pos_pct < 50:
-        suggestions.append("Mood: fewer positive check-ins. Try 10-min walk, 3-line gratitude note, or message a friend.")
+        suggestions.append("Mood: fewer positive check-ins this week. A short walk, journaling, or reaching out to someone may help.")
     else:
-        suggestions.append("Mood: trending positive — keep micro-wins (✍️ 3-line journal or a mini stretch break).")
+        suggestions.append("Mood: trending positive — keep the small habits that are helping.")
 
     if days_with_any_log < 5:
-        suggestions.append(f"Consistency: logs on {consistency}. Quick daily notes (water/sleep/mood) help spot patterns.")
+        suggestions.append(f"Consistency: you logged data on {consistency} days. More regular logs will improve your insights.")
 
     if bmi is not None:
         if bmi >= 25:
-            suggestions.append(f"BMI ~{bmi}. Gentle daily movement (e.g., brisk 15–20 min walk) can help energy and sleep.")
+            suggestions.append(f"BMI is around {bmi}. Gentle daily movement may help energy and sleep.")
         elif bmi < 18.5:
-            suggestions.append(f"BMI ~{bmi}. Make sure you're fueling enough; regular meals and snacks can support mood and sleep.")
+            suggestions.append(f"BMI is around {bmi}. Regular meals and snacks can support energy, mood, and sleep.")
 
     lines = []
     lines.append("📅 Weekly Report (last 7 days, personalised)")
-    lines.append(f"💧 Water: {water_total}L total • {water_avg}L/day avg • Goal {water_target}L/day • {days_meet_water}/7 days met")
-    lines.append(f"🌙 Sleep: {sleep_avg}h/day avg • Goal {sleep_target}h/day • {days_meet_sleep}/7 days met")
+    lines.append(f"💧 Water: {water_total}L total • {water_avg}L/day average • Goal {water_target}L/day • {days_meet_water}/7 days met")
+    lines.append(f"🌙 Sleep: {sleep_avg}h/day average • Goal {sleep_target}h/day • {days_meet_sleep}/7 days met")
     lines.append(f"😊 Mood: {mood_pos_pct}% positive entries • Consistency: {consistency}")
 
     return {
@@ -895,26 +1131,30 @@ def weekly_narrative():
         report = build_weekly_report(days=7)
         prof = report["stats"]["profile"]
         t = report["stats"]["targets"]
+
         prompt = f"""
-You are Wellness Buddy. Write a supportive, personal weekly wellness note (6–10 sentences) for the user.
-Use the data below. Encourage small, practical next steps. Avoid medical claims. Be kind and specific.
+You are SheeBot. Write a warm, natural weekly wellness note in 6–9 sentences.
+Use the data below. Sound conversational, supportive, and specific.
+Do not sound robotic. Avoid medical claims.
 End with 2 short bullet-point next steps.
 
-PROFILE (JSON):
+PROFILE:
 {json.dumps(prof, ensure_ascii=False)}
 
-TARGETS (JSON):
+TARGETS:
 {json.dumps(t, ensure_ascii=False)}
 
-STATS SUMMARY:
+SUMMARY:
 {report['summary']}
 
-SUGGESTIONS LIST:
+SUGGESTIONS:
 - """ + "\n- ".join(report["suggestions"]) + """
 
-Now write the note:
+Write the note now:
 """
         text = query_ollama(prompt)
+        if not text.strip().startswith("Bot:"):
+            text = "Bot: " + text.strip()
         return jsonify({"narrative": text})
     except Exception as e:
         print("❌ Error in /weekly-narrative:", e)
@@ -925,7 +1165,7 @@ Now write the note:
 def list_memories():
     items = read_jsonl(MEMORY_FILE)
     items = items[-50:]
-    text = "\n".join(f"- {m.get('text','')} ({m.get('timestamp','')})" for m in items) or "(none)"
+    text = "\n".join(f"- {m.get('text', '')} ({m.get('timestamp', '')})" for m in items) or "(none)"
     return jsonify({"response": "🧠 Memories (latest 50):\n" + text})
 
 @app.route("/forget-all", methods=["POST"])
