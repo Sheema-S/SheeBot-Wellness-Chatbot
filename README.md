@@ -1,4 +1,4 @@
-# SheeBot – AI Wellness Assistant
+# SheeBot – Wellness Assistant
 
 An AI-powered wellness assistant that combines habit tracking, conversational support, and personalized insights to help users improve their daily well-being.
 
